@@ -53,19 +53,30 @@ struct AppConfig {
     pathtracer_num_threads = 1;
     pathtracer_envmap = NULL;
 
+    pathtracer_samples_per_patch = 32;
+    pathtracer_max_tolerance = 0.05f;
     pathtracer_direct_hemisphere_sample = false;
+
+    pathtracer_filename = "";
   }
 
   size_t pathtracer_ns_aa;
   size_t pathtracer_max_ray_depth;
   size_t pathtracer_ns_area_light;
+
   size_t pathtracer_ns_diff;
   size_t pathtracer_ns_glsy;
   size_t pathtracer_ns_refr;
+
   size_t pathtracer_num_threads;
-  bool pathtracer_direct_hemisphere_sample;
   HDRImageBuffer* pathtracer_envmap;
 
+  float pathtracer_max_tolerance;
+  size_t pathtracer_samples_per_patch;
+
+  bool pathtracer_direct_hemisphere_sample;
+
+  string pathtracer_filename;
 };
 
 class Application : public Renderer {
@@ -88,9 +99,13 @@ class Application : public Renderer {
   void keyboard_event( int key, int event, unsigned char mods  );
 
   void load(Collada::SceneInfo* sceneInfo);
-  void render_to_file(std::string filename) { 
+  void render_to_file(std::string filename, size_t x, size_t y, size_t dx, size_t dy) { 
     set_up_pathtracer();
-    pathtracer->render_to_file(filename); 
+    pathtracer->render_to_file(filename, x, y, dx, dy); 
+  }
+
+  void load_camera(std::string filename) {
+    camera.load_settings(filename);
   }
 
  private:
@@ -201,6 +216,8 @@ class Application : public Renderer {
     string str, size_t size, const Color& c);
 
   bool gl_window;
+
+  std::string filename;
 
 }; // class Application
 

@@ -32,7 +32,7 @@ void make_coord_space(Matrix3x3& o2w, const Vector3D& n) {
 // Diffuse BSDF //
 
 Spectrum DiffuseBSDF::f(const Vector3D& wo, const Vector3D& wi) {
-  // Part 3, Task 1: 
+  // TODO (Part 3.1): 
   // This function takes in both wo and wi and returns the evaluation of
   // the BSDF for those two directions.
 
@@ -40,7 +40,7 @@ Spectrum DiffuseBSDF::f(const Vector3D& wo, const Vector3D& wi) {
 }
 
 Spectrum DiffuseBSDF::sample_f(const Vector3D& wo, Vector3D* wi, float* pdf) {
-  // Part 3, Task 1: 
+  // TODO (Part 3.1): 
   // This function takes in only wo and provides pointers for wi and pdf,
   // which should be assigned by this function.
   // After sampling a value for wi, it returns the evaluation of the BSDF
@@ -49,6 +49,7 @@ Spectrum DiffuseBSDF::sample_f(const Vector3D& wo, Vector3D* wi, float* pdf) {
   return Spectrum();
 }
 
+
 // Mirror BSDF //
 
 Spectrum MirrorBSDF::f(const Vector3D& wo, const Vector3D& wi) {
@@ -56,23 +57,20 @@ Spectrum MirrorBSDF::f(const Vector3D& wo, const Vector3D& wi) {
 }
 
 Spectrum MirrorBSDF::sample_f(const Vector3D& wo, Vector3D* wi, float* pdf) {
-
-
   return Spectrum();
 }
 
+
 // Glossy BSDF //
 
-/*
 Spectrum GlossyBSDF::f(const Vector3D& wo, const Vector3D& wi) {
   return Spectrum();
 }
 
 Spectrum GlossyBSDF::sample_f(const Vector3D& wo, Vector3D* wi, float* pdf) {
-  *pdf = 1.0f;
-  return reflect(wo, wi, reflectance);
+  return Spectrum();
 }
-*/
+
 
 // Refraction BSDF //
 
@@ -81,9 +79,9 @@ Spectrum RefractionBSDF::f(const Vector3D& wo, const Vector3D& wi) {
 }
 
 Spectrum RefractionBSDF::sample_f(const Vector3D& wo, Vector3D* wi, float* pdf) {
-
   return Spectrum();
 }
+
 
 // Glass BSDF //
 
@@ -92,22 +90,18 @@ Spectrum GlassBSDF::f(const Vector3D& wo, const Vector3D& wi) {
 }
 
 Spectrum GlassBSDF::sample_f(const Vector3D& wo, Vector3D* wi, float* pdf) {
-
   return Spectrum();
-
 }
 
-void BSDF::reflect(const Vector3D& wo, Vector3D* wi) {
 
+void BSDF::reflect(const Vector3D& wo, Vector3D* wi) {
 
 }
 
 bool BSDF::refract(const Vector3D& wo, Vector3D* wi, float ior) {
-
-
   return true;
-
 }
+
 
 // Emission BSDF //
 

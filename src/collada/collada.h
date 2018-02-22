@@ -61,7 +61,7 @@ class ColladaParser {
 
 	// Get entry point to the 462 profile section for the Collada object with
  	// the given xml entry point
- 	static XMLElement* get_technique_cmu462( XMLElement* xml );
+ 	static XMLElement* get_technique_CGL( XMLElement* xml );
 
   static void parse_node (XMLElement* xml);
   static void parse_camera	 ( XMLElement* xml, CameraInfo& 	camera	 );

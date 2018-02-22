@@ -16,7 +16,7 @@ static const double high_threshold = 1.0 - low_threshold;
 
 Mesh::Mesh(Collada::PolymeshInfo& polyMesh, const Matrix4x4& transform) {
 
-	// Build halfedge mesh from polygon soup
+  // Build halfedge mesh from polygon soup
   vector< vector<size_t> > polygons;
   for (const Collada::Polygon& p : polyMesh.polygons) {
     polygons.push_back(p.vertex_indices);
@@ -26,7 +26,10 @@ Mesh::Mesh(Collada::PolymeshInfo& polyMesh, const Matrix4x4& transform) {
     vertices[i] = (transform * Vector4D(vertices[i], 1)).projectTo3D();
   }
 
-  mesh.build(polygons, vertices);  
+  // Read texture coordinates.
+  vector<Vector2D> texcoords = polyMesh.texcoords; // DELIBERATE COPY.
+
+  mesh.build(polygons, vertices, texcoords);
   if (polyMesh.material) {
     bsdf = polyMesh.material->bsdf;
   } else {
@@ -43,7 +46,7 @@ void Mesh::render_in_opengl() const {
   //   glMaterialfv(GL_FRONT, GL_DIFFUSE, &diffuse->albedo.r);
   // }
 
-	// Enable lighting for faces
+  // Enable lighting for faces
   glEnable(GL_LIGHTING);
   draw_faces();
 

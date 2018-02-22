@@ -28,8 +28,12 @@ namespace CGL {
 PathTracer::PathTracer(size_t ns_aa,
                        size_t max_ray_depth, size_t ns_area_light,
                        size_t ns_diff, size_t ns_glsy, size_t ns_refr,
-                       size_t num_threads, bool direct_hemisphere_sample,
-                       HDRImageBuffer* envmap) {
+                       size_t num_threads,
+                       size_t samples_per_batch,
+                       float max_tolerance,
+                       HDRImageBuffer* envmap,
+                       bool direct_hemisphere_sample,
+                       string filename) {
   state = INIT,
   this->ns_aa = ns_aa;
   this->max_ray_depth = max_ray_depth;
@@ -37,7 +41,10 @@ PathTracer::PathTracer(size_t ns_aa,
   this->ns_diff = ns_diff;
   this->ns_glsy = ns_diff;
   this->ns_refr = ns_refr;
+  this->samplesPerBatch = samples_per_batch;
+  this->maxTolerance = max_tolerance;
   this->direct_hemisphere_sample = direct_hemisphere_sample;
+  this->filename = filename;
 
   if (envmap) {
     this->envLight = new EnvironmentLight(envmap);
@@ -116,6 +123,10 @@ void PathTracer::set_frame_size(size_t width, size_t height) {
   }
   sampleBuffer.resize(width, height);
   frameBuffer.resize(width, height);
+  cell_tl = Vector2D(0,0); 
+  cell_br = Vector2D(width, height);
+  render_cell = false;
+  sampleCountBuffer.resize(width * height);
   if (has_valid_configuration()) {
     state = READY;
   }
@@ -137,11 +148,15 @@ void PathTracer::update_screen() {
     case RENDERING:
       glDrawPixels(frameBuffer.w, frameBuffer.h, GL_RGBA,
                    GL_UNSIGNED_BYTE, &frameBuffer.data[0]);
+      if (render_cell)
+        visualize_cell();
       break;
     case DONE:
         //sampleBuffer.tonemap(frameBuffer, tm_gamma, tm_level, tm_key, tm_wht);
       glDrawPixels(frameBuffer.w, frameBuffer.h, GL_RGBA,
                    GL_UNSIGNED_BYTE, &frameBuffer.data[0]);
+      if (render_cell)
+        visualize_cell();
       break;
   }
 }
@@ -179,6 +194,7 @@ void PathTracer::clear() {
   sampleBuffer.resize(0, 0);
   frameBuffer.resize(0, 0);
   state = INIT;
+  render_cell = false;
 }
 
 void PathTracer::start_visualizing() {
@@ -199,23 +215,42 @@ void PathTracer::start_raytracing() {
   workerDoneCount = 0;
 
   sampleBuffer.clear();
-  frameBuffer.clear();
-  num_tiles_w = sampleBuffer.w / imageTileSize + 1;
-  num_tiles_h = sampleBuffer.h / imageTileSize + 1;
-  tilesTotal = num_tiles_w * num_tiles_h;
-  tilesDone = 0;
-  tile_samples.resize(num_tiles_w * num_tiles_h);
-  memset(&tile_samples[0], 0, num_tiles_w * num_tiles_h * sizeof(int));
+  if (!render_cell) {
+    frameBuffer.clear();
+    num_tiles_w = sampleBuffer.w / imageTileSize + 1;
+    num_tiles_h = sampleBuffer.h / imageTileSize + 1;
+    tilesTotal = num_tiles_w * num_tiles_h;
+    tilesDone = 0;
+    tile_samples.resize(num_tiles_w * num_tiles_h);
+    memset(&tile_samples[0], 0, num_tiles_w * num_tiles_h * sizeof(int));
 
-  // populate the tile work queue
-  for (size_t y = 0; y < sampleBuffer.h; y += imageTileSize) {
-      for (size_t x = 0; x < sampleBuffer.w; x += imageTileSize) {
-          workQueue.put_work(WorkItem(x, y, imageTileSize, imageTileSize));
+    // populate the tile work queue
+    for (size_t y = 0; y < sampleBuffer.h; y += imageTileSize) {
+        for (size_t x = 0; x < sampleBuffer.w; x += imageTileSize) {
+            workQueue.put_work(WorkItem(x, y, imageTileSize, imageTileSize));
+        }
+    }
+  } else {
+    int w = (cell_br-cell_tl).x;
+    int h = (cell_br-cell_tl).y;
+    int imTS = imageTileSize / 4;
+    num_tiles_w = w / imTS + 1;
+    num_tiles_h = h / imTS + 1;
+    tilesTotal = num_tiles_w * num_tiles_h;
+    tilesDone = 0;
+    tile_samples.resize(num_tiles_w * num_tiles_h);
+    memset(&tile_samples[0], 0, num_tiles_w * num_tiles_h * sizeof(int));
+
+    // populate the tile work queue
+    for (size_t y = cell_tl.y; y < cell_br.y; y += imTS) {
+      for (size_t x = cell_tl.x; x < cell_br.x; x += imTS) {
+        workQueue.put_work(WorkItem(x, y, 
+          min(imTS, (int)(cell_br.x-x)), min(imTS, (int)(cell_br.y-y)) ));
       }
+    }
   }
 
   bvh->total_isects = 0; bvh->total_rays = 0;
-  bounces = rays = 0;
   // launch threads
   fprintf(stdout, "[PathTracer] Rendering... "); fflush(stdout);
   for (int i=0; i<numWorkerThreads; i++) {
@@ -223,13 +258,23 @@ void PathTracer::start_raytracing() {
   }
 }
 
-void PathTracer::render_to_file(string filename) {
-  unique_lock<std::mutex> lk(m_done);
-  start_raytracing();
-  cv_done.wait(lk, [this]{ return state == DONE; });
-  lk.unlock();
-  save_image(filename);
-  fprintf(stdout, "[PathTracer] Job completed.\n");
+void PathTracer::render_to_file(string filename, size_t x, size_t y, size_t dx, size_t dy) {
+  if (x == -1) {
+    unique_lock<std::mutex> lk(m_done);
+    start_raytracing();
+    cv_done.wait(lk, [this]{ return state == DONE; });
+    lk.unlock();
+    save_image(filename);
+    fprintf(stdout, "[PathTracer] Job completed.\n");
+  } else {
+    render_cell = true;
+    cell_tl = Vector2D(x,y);
+    cell_br = Vector2D(x+dx,y+dy);
+    ImageBuffer buffer;
+    raytrace_cell(buffer);
+    save_image(filename, &buffer);
+    fprintf(stdout, "[PathTracer] Cell job completed.\n");
+  }
 }
 
 
@@ -352,6 +397,44 @@ void PathTracer::visualize_accel() const {
   glPopAttrib();
 }
 
+void PathTracer::visualize_cell() const {
+  glPushAttrib(GL_VIEWPORT_BIT);
+  glViewport(0, 0, sampleBuffer.w, sampleBuffer.h);
+
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+  glLoadIdentity();
+  glOrtho(0, sampleBuffer.w, sampleBuffer.h, 0, 0, 1);
+
+  glMatrixMode(GL_MODELVIEW);
+  glPushMatrix();
+  glLoadIdentity();
+  glTranslatef(0, 0, -1);
+
+  glColor4f(1.0, 0.0, 0.0, 0.8);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_LIGHTING);
+
+  // Draw the Red Rectangle.
+  glBegin(GL_LINE_LOOP);
+  glVertex2f(cell_tl.x, sampleBuffer.h-cell_br.y);
+  glVertex2f(cell_br.x, sampleBuffer.h-cell_br.y);
+  glVertex2f(cell_br.x, sampleBuffer.h-cell_tl.y);
+  glVertex2f(cell_tl.x, sampleBuffer.h-cell_tl.y);
+  glEnd();
+
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+
+  glMatrixMode(GL_MODELVIEW);
+  glPopMatrix();
+
+  glPopAttrib();
+
+  glEnable(GL_LIGHTING);
+  glEnable(GL_DEPTH_TEST);
+}
+
 void PathTracer::key_press(int key) {
   BVHNode *current = selectionHistory.top();
   switch (key) {
@@ -382,7 +465,7 @@ void PathTracer::key_press(int key) {
       if (max_ray_depth) max_ray_depth--;
       fprintf(stdout, "[PathTracer] Max ray depth decreased to %zu.\n", max_ray_depth);
       break;
-  case 'd': case 'D':
+  case 'h': case 'H':
       direct_hemisphere_sample = !direct_hemisphere_sample;
       fprintf(stdout, "[PathTracer] Toggled direct lighting to %s\n", (direct_hemisphere_sample ? "uniform hemisphere sampling" : "importance light sampling"));
       break;
@@ -401,8 +484,16 @@ void PathTracer::key_press(int key) {
           selectionHistory.push(current->r);
       }
       break;
-  case 'a':
-  case 'A':
+
+  case 'C':
+    render_cell = !render_cell;
+    if (render_cell)
+      fprintf(stdout, "[PathTracer] Now in cell render mode.\n");
+    else
+      fprintf(stdout, "[PathTracer] No longer in cell render mode.\n");
+    break;
+
+  case 'a': case 'A':
       show_rays = !show_rays;
   default:
       return;
@@ -411,7 +502,6 @@ void PathTracer::key_press(int key) {
 
 
 Spectrum PathTracer::estimate_direct_lighting_hemisphere(const Ray& r, const Intersection& isect) {
-  // TODO: Part 3
   // Estimate the lighting from this intersection coming directly from a light.
   // For this function, sample uniformly in a hemisphere. 
 
@@ -429,19 +519,20 @@ Spectrum PathTracer::estimate_direct_lighting_hemisphere(const Ray& r, const Int
   // This is the same number of total samples as estimate_direct_lighting_importance (outside of delta lights). 
   // We keep the same number of samples for clarity of comparison.
   int num_samples = scene->lights.size() * ns_area_light;
+  Spectrum L_out;
 
-  return Spectrum();
+  // TODO (Part 3): Write your sampling loop here
+  // COMMENT OUT `normal_shading` IN `est_radiance_global_illumination` BEFORE YOU BEGIN
 
+  return L_out;
 }
 
 Spectrum PathTracer::estimate_direct_lighting_importance(const Ray& r, const Intersection& isect) {
-  // TODO: Part 3
   // Estimate the lighting from this intersection coming directly from a light.
   // To implement importance sampling, sample only from lights, not uniformly in a hemisphere. 
 
   // make a coordinate system for a hit point
   // with N aligned with the Z direction.
-  // printf("ho\n");
   Matrix3x3 o2w;
   make_coord_space(o2w, isect.n);
   Matrix3x3 w2o = o2w.T();
@@ -450,9 +541,12 @@ Spectrum PathTracer::estimate_direct_lighting_importance(const Ray& r, const Int
   // toward the camera if this is a primary ray)
   const Vector3D& hit_p = r.o + r.d * isect.t;
   const Vector3D& w_out = w2o * (-r.d);
+  Spectrum L_out;
 
+  // TODO (Part 3): Here is where your code for looping over scene lights goes
+  // COMMENT OUT `normal_shading` IN `est_radiance_global_illumination` BEFORE YOU BEGIN
 
-  return Spectrum();
+  return L_out;
 }
 
 
@@ -468,15 +562,14 @@ Spectrum PathTracer::zero_bounce_radiance(const Ray&r, const Intersection& isect
 Spectrum PathTracer::one_bounce_radiance(const Ray&r, const Intersection& isect) {
   // TODO: Part 4, Task 2
   // Returns either the direct illumination by hemisphere or importance sampling
-  // depending on parameters
-  // (you implemented this in Part 3)
-  //
+  // depending on `direct_hemisphere_sample`
+  // (you implemented these functions in Part 3)
+
   return Spectrum();
   
 }
 
 Spectrum PathTracer::at_least_one_bounce_radiance(const Ray&r, const Intersection& isect) {
-  // TODO: Part 4, Task 2
   Matrix3x3 o2w;
   make_coord_space(o2w, isect.n);
   Matrix3x3 w2o = o2w.T();
@@ -486,17 +579,15 @@ Spectrum PathTracer::at_least_one_bounce_radiance(const Ray&r, const Intersectio
 
   Spectrum L_out = one_bounce_radiance(r, isect);
 
-  // Here is where your code for sampling the BSDF,
-  // performing Russian roulette step, and 
-  // returning a recursively traced ray (when applicable) goes
+  // TODO (Part 4.2): Here is where your code for sampling the BSDF,
+  // performing Russian roulette step, and returning a recursively 
+  // traced ray (when applicable) goes
 
-  return Spectrum();
+  return L_out;
 
 }
 
-
 Spectrum PathTracer::est_radiance_global_illumination(const Ray &r) {
-
   Intersection isect;
   Spectrum L_out;
 
@@ -513,29 +604,27 @@ Spectrum PathTracer::est_radiance_global_illumination(const Ray &r) {
 
   return normal_shading(isect.n);
 
-  // TODO Part 3: Return the direct illumination.
+  // TODO (Part 3): Return the direct illumination.
 
-  // TODO Part 4: Accumulate the "direct" and "indirect" 
+  // TODO (Part 4): Accumulate the "direct" and "indirect" 
   // parts of global illumination into L_out rather than just direct
   
   return L_out;
-
 }
 
 Spectrum PathTracer::raytrace_pixel(size_t x, size_t y) {
 
-  // Part 1, Task 1:
+  // TODO (Part 1.1):
   // Make a loop that generates num_samples camera rays and traces them 
   // through the scene. Return the average Spectrum. 
   // You should call est_radiance_global_illumination in this function.
-  //
-  // Part 5:
+
+  // TODO (Part 5):
   // Modify your implementation to include adaptive sampling.
   // Use the command line parameters "samplesPerBatch" and "maxTolerance"
-  //
 
-  int num_samples = ns_aa; // total samples to evaluate
-  Vector2D origin = Vector2D(x,y); // bottom left corner of the pixel
+  int num_samples = ns_aa;            // total samples to evaluate
+  Vector2D origin = Vector2D(x,y);    // bottom left corner of the pixel
 
   return Spectrum();
 
@@ -569,6 +658,34 @@ void PathTracer::raytrace_tile(int tile_x, int tile_y,
   sampleBuffer.toColor(frameBuffer, tile_start_x, tile_start_y, tile_end_x, tile_end_y);
 }
 
+void PathTracer::raytrace_cell(ImageBuffer& buffer) {
+  size_t tile_start_x = cell_tl.x;
+  size_t tile_start_y = cell_tl.y;
+
+  size_t tile_end_x = cell_br.x;
+  size_t tile_end_y = cell_br.y;
+
+  size_t w = tile_end_x - tile_start_x;
+  size_t h = tile_end_y - tile_start_y;
+  HDRImageBuffer sb(w, h);
+  buffer.resize(w,h);
+
+  stop();
+  render_cell = true;
+  {
+    unique_lock<std::mutex> lk(m_done);
+    start_raytracing();
+    cv_done.wait(lk, [this]{ return state == DONE; });
+    lk.unlock();
+  }
+
+  for (size_t y = tile_start_y; y < tile_end_y; y++) {
+    for (size_t x = tile_start_x; x < tile_end_x; x++) {
+        buffer.data[w*(y-tile_start_y)+(x-tile_start_x)] = frameBuffer.data[x+y*sampleBuffer.w];
+    }
+  }
+}
+
 void PathTracer::worker_thread() {
 
   Timer timer;
@@ -597,7 +714,6 @@ void PathTracer::worker_thread() {
     fprintf(stdout, "\r[PathTracer] Rendering... 100%%! (%.4fs)\n", timer.duration());
     fprintf(stdout, "[PathTracer] BVH traced %llu rays.\n", bvh->total_rays);
     fprintf(stdout, "[PathTracer] Averaged %f intersection tests per ray.\n", (((double)bvh->total_isects)/bvh->total_rays));
-    fprintf(stdout, "[PathTracer] Averaged %f bounces per ray.\n", (((double)bounces)/rays));
 
     lock_guard<std::mutex> lk(m_done);
     state = DONE;
@@ -605,9 +721,12 @@ void PathTracer::worker_thread() {
   }
 }
 
-void PathTracer::save_image(string filename) {
+void PathTracer::save_image(string filename, ImageBuffer* buffer) {
 
   if (state != DONE) return;
+
+  if (!buffer)
+    buffer = &frameBuffer;
 
   if (filename == "") {
     time_t rawtime;
@@ -616,15 +735,14 @@ void PathTracer::save_image(string filename) {
     time_t t = time(nullptr);
     tm *lt = localtime(&t);
     stringstream ss;
-    ss << "screenshot_" << lt->tm_mon+1 << "-" << lt->tm_mday << "_" 
+    ss << this->filename << "_screenshot_" << lt->tm_mon+1 << "-" << lt->tm_mday << "_" 
       << lt->tm_hour << "-" << lt->tm_min << "-" << lt->tm_sec << ".png";
     filename = ss.str();  
   }
 
-
-  uint32_t* frame = &frameBuffer.data[0];
-  size_t w = frameBuffer.w;
-  size_t h = frameBuffer.h;
+  uint32_t* frame = &buffer->data[0];
+  size_t w = buffer->w;
+  size_t h = buffer->h;
   uint32_t* frame_out = new uint32_t[w * h];
   for(size_t i = 0; i < h; ++i) {
     memcpy(frame_out + i * w, frame + (h - i - 1) * w, 4 * w);
@@ -633,6 +751,32 @@ void PathTracer::save_image(string filename) {
   fprintf(stderr, "[PathTracer] Saving to file: %s... ", filename.c_str());
   lodepng::encode(filename, (unsigned char*) frame_out, w, h);
   fprintf(stderr, "Done!\n");
+
+  save_sampling_rate_image(filename);
+}
+
+void PathTracer::save_sampling_rate_image(string filename) {
+  size_t w = frameBuffer.w;
+  size_t h = frameBuffer.h;
+  ImageBuffer outputBuffer(w, h);
+
+  for (int x = 0; x < w; x++) {
+      for (int y = 0; y < h; y++) {
+          float samplingRate = sampleCountBuffer[y * w + x] * 1.0f / ns_aa;
+
+          Color c;
+          if (samplingRate <= 0.5) {
+              float r = (0.5 - samplingRate) / 0.5;
+              c = Color(0.0f, 0.0f, 1.0f) * r + Color(0.0f, 1.0f, 0.0f) * (1.0 - r);
+          } else {
+              float r = (1.0 - samplingRate) / 0.5;
+              c = Color(0.0f, 1.0f, 0.0f) * r + Color(1.0f, 0.0f, 0.0f) * (1.0 - r);
+          }
+          outputBuffer.update_pixel(c, x, h - 1 - y);
+      }
+  }
+
+  lodepng::encode(filename.substr(0,filename.size()-4) + "_rate.png", (unsigned char*) (outputBuffer.data.data()), w, h);
 }
 
 }  // namespace CGL

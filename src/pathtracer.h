@@ -63,8 +63,12 @@ class PathTracer {
   PathTracer(size_t ns_aa = 1, 
              size_t max_ray_depth = 4, size_t ns_area_light = 1,
              size_t ns_diff = 1, size_t ns_glsy = 1, size_t ns_refr = 1,
-             size_t num_threads = 1, bool direct_hemisphere_sample = false,
-             HDRImageBuffer* envmap = NULL);
+             size_t num_threads = 1,
+             size_t samples_per_batch = 32,
+             float max_tolerance = 0.05f,
+             HDRImageBuffer* envmap = NULL,
+             bool direct_hemisphere_sample = false,
+             string filename = "");
 
   /**
    * Destructor.
@@ -127,7 +131,9 @@ class PathTracer {
    */
   void start_raytracing();
 
-  void render_to_file(std::string filename);
+  void render_to_file(std::string filename, size_t x, size_t y, size_t dx, size_t dy);
+
+  void raytrace_cell(ImageBuffer& buffer);
 
   /**
    * If the pathtracer is in VISUALIZE, handle key presses to traverse the bvh.
@@ -137,7 +143,15 @@ class PathTracer {
   /**
    * Save rendered result to png file.
    */
-  void save_image(std::string filename = "");
+  void save_image(std::string filename="", ImageBuffer* buffer=NULL);
+
+  /**
+   * Save sampling rates to png file.
+   */
+  void save_sampling_rate_image(std::string filename);
+
+  Vector2D cell_tl, cell_br;
+  bool render_cell;
 
  private:
 
@@ -156,6 +170,8 @@ class PathTracer {
    */
   void visualize_accel() const;
 
+  void visualize_cell() const;
+
   /**
    * Trace an ray in the scene.
    */
@@ -163,12 +179,9 @@ class PathTracer {
   Spectrum estimate_direct_lighting_importance(const Ray &r, const StaticScene::Intersection& isect);
 
   Spectrum est_radiance_global_illumination(const Ray &r); 
-  Spectrum zero_bounce_radiance(const Ray &r, 
-                                            const StaticScene::Intersection& isect);
-  Spectrum one_bounce_radiance(const Ray &r, 
-                                            const StaticScene::Intersection& isect);
-  Spectrum at_least_one_bounce_radiance(const Ray &r, 
-                                            const StaticScene::Intersection& isect);
+  Spectrum zero_bounce_radiance(const Ray &r, const StaticScene::Intersection& isect);
+  Spectrum one_bounce_radiance(const Ray &r, const StaticScene::Intersection& isect);
+  Spectrum at_least_one_bounce_radiance(const Ray &r, const StaticScene::Intersection& isect);
 
   Spectrum normal_shading(const Vector3D& n) {
     return Spectrum(n[0],n[1],n[2])*.5 + Spectrum(.5,.5,.5);
@@ -222,6 +235,8 @@ class PathTracer {
   size_t ns_diff;       ///< number of samples - diffuse surfaces
   size_t ns_glsy;       ///< number of samples - glossy surfaces
   size_t ns_refr;       ///< number of samples - refractive surfaces
+  size_t samplesPerBatch;
+  float maxTolerance;
   bool direct_hemisphere_sample; ///< true if sampling uniformly from hemisphere for direct lighting. Otherwise, light sample
 
   // Integration state //
@@ -239,6 +254,8 @@ class PathTracer {
   HDRImageBuffer sampleBuffer;   ///< sample buffer
   ImageBuffer frameBuffer;       ///< frame buffer
   Timer timer;                   ///< performance test timer
+
+  std::vector<int> sampleCountBuffer;   ///< sample count buffer
 
   // Internals //
 
@@ -266,11 +283,8 @@ class PathTracer {
   std::stack<BVHNode*> selectionHistory;  ///< node selection history
   std::vector<LoggedRay> rayLog;          ///< ray tracing log
   bool show_rays;                         ///< show rays from raylog
-
-  std::atomic<long long unsigned> bounces;
-  std::atomic<long long unsigned> rays;
-
-
+  
+  std::string filename;
 };
 
 }  // namespace CGL

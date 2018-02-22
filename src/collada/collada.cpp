@@ -86,7 +86,7 @@ XMLElement* ColladaParser::get_element( XMLElement* xml, string query ) {
 
   // handle indirection
   if (e) {
-		const char* url = e->Attribute("url");
+    const char* url = e->Attribute("url");
     if (url) {
       string id = url + 1;
       e = uri_find(id);
@@ -114,7 +114,7 @@ XMLElement* ColladaParser::get_technique_common( XMLElement* xml ) {
 }
 
 
-XMLElement* ColladaParser::get_technique_cmu462( XMLElement* xml ) {
+XMLElement* ColladaParser::get_technique_CGL( XMLElement* xml ) {
 
   XMLElement* technique = get_element(xml, "extra/technique");
   while (technique) {
@@ -123,7 +123,7 @@ XMLElement* ColladaParser::get_technique_cmu462( XMLElement* xml ) {
     technique = technique->NextSiblingElement("technique");
   }
 
-	return NULL;
+  return NULL;
 
 }
 
@@ -152,8 +152,8 @@ int ColladaParser::load( const char* filename, SceneInfo* sceneInfo ) {
     stat("Loading COLLADA file...");
   }
 
-	// Set output scene pointer
-	scene = sceneInfo;
+  // Set output scene pointer
+  scene = sceneInfo;
 
   // Build uri table
   uri_load(root);
@@ -161,43 +161,43 @@ int ColladaParser::load( const char* filename, SceneInfo* sceneInfo ) {
   // Load assets - correct up direction
   if (XMLElement* e_asset = get_element(root, "asset")) {
     XMLElement* up_axis = get_element(e_asset, "up_axis");
-		if (!up_axis) {
-			stat("Error: No up direction defined in COLLADA file");
-			exit(EXIT_FAILURE);
-		}
+    if (!up_axis) {
+      stat("Error: No up direction defined in COLLADA file");
+      exit(EXIT_FAILURE);
+    }
 
-		// get up direction and correct non-Y_UP scenes by setting a non-identity
+    // get up direction and correct non-Y_UP scenes by setting a non-identity
     // global entry transformation, assuming right hand coordinate system for
     // both input and output
 
     string up_dir = up_axis->GetText();
-		transform = Matrix4x4::identity();
-		if (up_dir == "X_UP") {
+    transform = Matrix4x4::identity();
+    if (up_dir == "X_UP") {
 
-			// swap X-Y and negate Z
-			transform(0,0) =  0; transform(0,1) = 1;
-			transform(1,0) =  1; transform(1,1) = 0;
+      // swap X-Y and negate Z
+      transform(0,0) =  0; transform(0,1) = 1;
+      transform(1,0) =  1; transform(1,1) = 0;
       transform(2,2) = -1;
 
-			// local up direction for lights and cameras
-			up = Vector3D(1,0,0);
+      // local up direction for lights and cameras
+      up = Vector3D(1,0,0);
 
-		} else if (up_dir == "Z_UP") {
+    } else if (up_dir == "Z_UP") {
 
-			// swap Z-Y matrix and negate X
-			transform(1,1) =  0; transform(1,2) = 1;
-			transform(2,1) =  1; transform(2,2) = 0;
+      // swap Z-Y matrix and negate X
+      transform(1,1) =  0; transform(1,2) = 1;
+      transform(2,1) =  1; transform(2,2) = 0;
       transform(0,0) = -1;
 
-			// local up direction cameras
-			up = Vector3D(0,0,1);
+      // local up direction cameras
+      up = Vector3D(0,0,1);
 
-		} else if (up_dir == "Y_UP") {
-			up = Vector3D(0,1,0); // no need to correct Y_UP as its used internally
-		} else {
-			stat("Error: invalid up direction in COLLADA file");
-			exit(EXIT_FAILURE);
-		}
+    } else if (up_dir == "Y_UP") {
+      up = Vector3D(0,1,0); // no need to correct Y_UP as its used internally
+    } else {
+      stat("Error: invalid up direction in COLLADA file");
+      exit(EXIT_FAILURE);
+    }
   }
 
   // Load scene -
@@ -209,11 +209,11 @@ int ColladaParser::load( const char* filename, SceneInfo* sceneInfo ) {
     stat("Loading scene...");
 
     // parse all nodes in scene
-		XMLElement* e_node = get_element(e_scene, "node");
-	  while (e_node) {
-			parse_node(e_node);
-			e_node = e_node->NextSiblingElement("node");
-		}
+    XMLElement* e_node = get_element(e_scene, "node");
+    while (e_node) {
+      parse_node(e_node);
+      e_node = e_node->NextSiblingElement("node");
+    }
 
   } else {
     stat("Error: No scene description found in file:" << filename);
@@ -233,15 +233,15 @@ int ColladaParser::save( const char* filename, const SceneInfo* sceneInfo ) {
 
 void ColladaParser::parse_node( XMLElement* xml ) {
 
-	// create new node
-	Node node = Node();
+  // create new node
+  Node node = Node();
 
   // name & id
   node.id   = xml->Attribute( "id" );
   node.name = xml->Attribute("name");
   stat(" |- Node: " << node.name << " (id:" << node.id << ")");
 
-	// node transformation -
+  // node transformation -
   // combine in order of declaration if the transformations are given as a
   // transformation list
   XMLElement* e = xml->FirstChildElement();
@@ -330,28 +330,28 @@ void ColladaParser::parse_node( XMLElement* xml ) {
     e = e->NextSiblingElement();
   }
 
-	// push transformations
-	Matrix4x4 transform_save = transform;
+  // push transformations
+  Matrix4x4 transform_save = transform;
 
-	// combine transformations
-	node.transform = transform * node.transform;
-	transform = node.transform;
+  // combine transformations
+  node.transform = transform * node.transform;
+  transform = node.transform;
 
-	// parse child nodes if node is a joint
-	XMLElement* e_child = get_element(xml, "node");
-	while (e_child) {
-		parse_node(e_child);
-		e_child = e_child->NextSiblingElement("node");
-	}
+  // parse child nodes if node is a joint
+  XMLElement* e_child = get_element(xml, "node");
+  while (e_child) {
+    parse_node(e_child);
+    e_child = e_child->NextSiblingElement("node");
+  }
 
-	// pop transformations
-	transform = transform_save;
+  // pop transformations
+  transform = transform_save;
 
   // node instance -
   // non-joint nodes must contain a scene object instance
   XMLElement* e_camera   = get_element(xml, "instance_camera");
   XMLElement* e_light    = get_element(xml, "instance_light");
-	XMLElement* e_geometry = get_element(xml, "instance_geometry");
+  XMLElement* e_geometry = get_element(xml, "instance_geometry");
 
   if (e_camera) {
     CameraInfo* camera = new CameraInfo();
@@ -362,71 +362,71 @@ void ColladaParser::parse_node( XMLElement* xml ) {
     parse_light( e_light, *light );
     node.instance = light;
   } else if (e_geometry) {
-		if (get_element(e_geometry, "mesh")) {
+    if (get_element(e_geometry, "mesh")) {
 
-			// mesh geometry
-			PolymeshInfo* polymesh = new PolymeshInfo();
-			parse_polymesh(e_geometry, *polymesh);
+      // mesh geometry
+      PolymeshInfo* polymesh = new PolymeshInfo();
+      parse_polymesh(e_geometry, *polymesh);
 
-			// mesh material
-			XMLElement* e_instance_material = get_element(xml,
-			"instance_geometry/bind_material/technique_common/instance_material");
-			if (e_instance_material) {
+      // mesh material
+      XMLElement* e_instance_material = get_element(xml,
+      "instance_geometry/bind_material/technique_common/instance_material");
+      if (e_instance_material) {
 
-				if (!e_instance_material->Attribute("target")) {
-					stat("Error: no target material in instance: " << e_instance_material);
-					exit(EXIT_FAILURE);
-				}
+        if (!e_instance_material->Attribute("target")) {
+          stat("Error: no target material in instance: " << e_instance_material);
+          exit(EXIT_FAILURE);
+        }
 
-				string material_id = e_instance_material->Attribute("target") + 1;
-				XMLElement* e_material = uri_find(material_id);
-				if (!e_material) {
-					stat("Error: invalid target material id : " << material_id);
-					exit(EXIT_FAILURE);
-				}
+        string material_id = e_instance_material->Attribute("target") + 1;
+        XMLElement* e_material = uri_find(material_id);
+        if (!e_material) {
+          stat("Error: invalid target material id : " << material_id);
+          exit(EXIT_FAILURE);
+        }
 
-				MaterialInfo* material = new MaterialInfo();
-				parse_material(e_material, *material);
-				polymesh->material = material;
-			}
+        MaterialInfo* material = new MaterialInfo();
+        parse_material(e_material, *material);
+        polymesh->material = material;
+      }
 
-			node.instance = polymesh;
+      node.instance = polymesh;
 
-		} else if (get_element(e_geometry, "extra")) {
+    } else if (get_element(e_geometry, "extra")) {
 
-			// sphere geometry
-			SphereInfo* sphere = new SphereInfo();
-			parse_sphere(e_geometry, *sphere);
+      // sphere geometry
+      SphereInfo* sphere = new SphereInfo();
+      parse_sphere(e_geometry, *sphere);
 
-			// sphere material
-			XMLElement* e_instance_material = get_element(xml,
-			"instance_geometry/bind_material/technique_common/instance_material");
-			if (e_instance_material) {
+      // sphere material
+      XMLElement* e_instance_material = get_element(xml,
+      "instance_geometry/bind_material/technique_common/instance_material");
+      if (e_instance_material) {
 
-				if (!e_instance_material->Attribute("target")) {
-					stat("Error: no target material in instance: " << e_instance_material);
-					exit(EXIT_FAILURE);
-				}
+        if (!e_instance_material->Attribute("target")) {
+          stat("Error: no target material in instance: " << e_instance_material);
+          exit(EXIT_FAILURE);
+        }
 
-				string material_id = e_instance_material->Attribute("target") + 1;
-				XMLElement* e_material = uri_find(material_id);
-				if (!e_material) {
-					stat("Error: invalid target material id : " << material_id);
-					exit(EXIT_FAILURE);
-				}
+        string material_id = e_instance_material->Attribute("target") + 1;
+        XMLElement* e_material = uri_find(material_id);
+        if (!e_material) {
+          stat("Error: invalid target material id : " << material_id);
+          exit(EXIT_FAILURE);
+        }
 
-				MaterialInfo* material = new MaterialInfo();
-				parse_material(e_material, *material);
-				sphere->material = material;
-			}
+        MaterialInfo* material = new MaterialInfo();
+        parse_material(e_material, *material);
+        sphere->material = material;
+      }
 
-			node.instance = sphere;
+      node.instance = sphere;
 
-		}
+    }
   }
 
-	// add node to scene
-	scene->nodes.push_back(node);
+  // add node to scene
+  scene->nodes.push_back(node);
 }
 
 void ColladaParser::parse_camera( XMLElement* xml, CameraInfo& camera ) {
@@ -436,9 +436,9 @@ void ColladaParser::parse_camera( XMLElement* xml, CameraInfo& camera ) {
   camera.name = xml->Attribute("name");
   camera.type = Instance::CAMERA;
 
-	// default look direction is down the up axis
-	camera.up_dir   = up;
-	camera.view_dir = Vector3D(0,0,-1);
+  // default look direction is down the up axis
+  camera.up_dir   = up;
+  camera.view_dir = Vector3D(0,0,-1);
 
   // NOTE (sky): only supports perspective for now
   XMLElement* e_perspective = get_element(xml, "optics/technique_common/perspective");
@@ -481,9 +481,9 @@ void ColladaParser::parse_light( XMLElement* xml, LightInfo& light ) {
 
   XMLElement* technique = NULL;
   XMLElement* technique_common = get_technique_common(xml);
-  XMLElement* technique_cmu462 = get_technique_cmu462(xml);
+  XMLElement* technique_CGL = get_technique_CGL(xml);
 
-  technique = technique_cmu462 ? technique_cmu462 : technique_common;
+  technique = technique_CGL ? technique_CGL : technique_common;
   if (!technique) {
     stat("Error: No supported profile defined in light: " << light.id);
     exit(EXIT_FAILURE);
@@ -546,7 +546,7 @@ void ColladaParser::parse_light( XMLElement* xml, LightInfo& light ) {
     } else if (type == "spot") {
       light.light_type = LightType::SPOT;
       XMLElement* e_color = get_element(e_light, "color");
-			XMLElement* e_falloff_deg = e_light->FirstChildElement("falloff_angle");
+      XMLElement* e_falloff_deg = e_light->FirstChildElement("falloff_angle");
       XMLElement* e_falloff_exp = e_light->FirstChildElement("falloff_exponent");
       XMLElement* e_constant_att = get_element(e_light, "constant_attenuation");
       XMLElement* e_linear_att = get_element(e_light, "linear_attenuation");
@@ -577,26 +577,26 @@ void ColladaParser::parse_light( XMLElement* xml, LightInfo& light ) {
 
 void ColladaParser::parse_sphere(XMLElement* xml, SphereInfo& sphere) {
 
-	// name & id
+  // name & id
   sphere.id   = xml->Attribute( "id" );
   sphere.name = xml->Attribute("name");
   sphere.type = Instance::SPHERE;
 
-	XMLElement* e_technique = get_technique_cmu462(xml);
-	if (!e_technique) {
-		stat("Error: no 462 profile technique in geometry: " << sphere.id);
+  XMLElement* e_technique = get_technique_CGL(xml);
+  if (!e_technique) {
+    stat("Error: no 462 profile technique in geometry: " << sphere.id);
     exit(EXIT_FAILURE);
-	}
+  }
 
-	XMLElement* e_radius = get_element(e_technique, "sphere/radius");
-	if (!e_radius) {
-		stat("Error: invalid sphere definition in geometry: " << sphere.id);
+  XMLElement* e_radius = get_element(e_technique, "sphere/radius");
+  if (!e_radius) {
+    stat("Error: invalid sphere definition in geometry: " << sphere.id);
     exit(EXIT_FAILURE);
-	}
+  }
 
-	sphere.radius = atof(e_radius->GetText());
+  sphere.radius = atof(e_radius->GetText());
 
-	// print summary
+  // print summary
   stat("  |- " << sphere);
 }
 
@@ -857,7 +857,7 @@ void ColladaParser::parse_material ( XMLElement* xml, MaterialInfo& material ) {
   material.type = Instance::MATERIAL;
 
   // parse effect
-	XMLElement* e_effect = get_element(xml, "instance_effect");
+  XMLElement* e_effect = get_element(xml, "instance_effect");
   if (e_effect) {
 
     // if the material does not have additional specification in the 462
@@ -865,10 +865,10 @@ void ColladaParser::parse_material ( XMLElement* xml, MaterialInfo& material ) {
     // Other information from the common profile are ignored
 
     XMLElement* tech_common = get_technique_common(e_effect); // common profile
-    XMLElement* tech_cmu462 = get_technique_cmu462(e_effect); // cmu462 profile
+    XMLElement* tech_CGL = get_technique_CGL(e_effect); // CGL profile
 
-    if (tech_cmu462) {
-      XMLElement *e_bsdf = tech_cmu462->FirstChildElement();
+    if (tech_CGL) {
+      XMLElement *e_bsdf = tech_CGL->FirstChildElement();
       while (e_bsdf) {
         string type = e_bsdf->Name();
         if (type == "emission") {
@@ -881,15 +881,13 @@ void ColladaParser::parse_material ( XMLElement* xml, MaterialInfo& material ) {
           Spectrum reflectance = spectrum_from_string(string(e_reflectance->GetText()));
           BSDF* bsdf = new MirrorBSDF(reflectance);
           material.bsdf = bsdf;
-        /*
-        if (type == "glossy") {
+        } else if (type == "glossy") {
           XMLElement *e_reflectance  = get_element(e_bsdf, "reflectance");
-          XMLElement *e_roughness = get_element(e_bsdf, "roughness");
+          XMLElement *e_shininess = get_element(e_bsdf, "shininess");
           Spectrum reflectance = spectrum_from_string(string(e_reflectance->GetText()));
-          float roughness = atof(e_roughness->GetText());
-          BSDF* bsdf = new GlossyBSDF(reflectance, roughness);
+          float shininess = atof(e_shininess->GetText());
+          BSDF* bsdf = new GlossyBSDF(reflectance, shininess);
           material.bsdf = bsdf;
-        */
         } else if (type == "refraction") {
           XMLElement *e_transmittance  = get_element(e_bsdf, "transmittance");
           XMLElement *e_roughness = get_element(e_bsdf, "roughness");
@@ -911,14 +909,13 @@ void ColladaParser::parse_material ( XMLElement* xml, MaterialInfo& material ) {
           BSDF* bsdf = new GlassBSDF(transmittance, reflectance, roughness, ior);
           material.bsdf = bsdf;
         }
-
         e_bsdf = e_bsdf->NextSiblingElement();
       }
     } else if (tech_common) {
       XMLElement* e_diffuse = get_element(tech_common, "phong/diffuse/color");
       if (e_diffuse) {
-        Spectrum albedo = spectrum_from_string(string(e_diffuse->GetText()));
-        material.bsdf = new DiffuseBSDF(albedo);
+        Spectrum reflectance = spectrum_from_string(string(e_diffuse->GetText()));
+        material.bsdf = new DiffuseBSDF(reflectance);
       } else {
         material.bsdf = new DiffuseBSDF(Spectrum(.5f,.5f,.5f));
       }

@@ -19,11 +19,5 @@ Spectrum EnvironmentLight::sample_dir(const Ray& r) const {
   return Spectrum(0, 0, 0);
 }
 
-bool EnvironmentLight::point_on_light(const Vector3D& p, Spectrum* rad) const {
-  // TODO: Implement
-  
-  return false;
-}
-
 } // namespace StaticScene
 } // namespace CGL

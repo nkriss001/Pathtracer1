@@ -28,10 +28,13 @@ Application::Application(AppConfig config, bool gl) {
     config.pathtracer_ns_glsy,
     config.pathtracer_ns_refr,
     config.pathtracer_num_threads,
+    config.pathtracer_samples_per_patch,
+    config.pathtracer_max_tolerance,
+    config.pathtracer_envmap,
     config.pathtracer_direct_hemisphere_sample,
-    config.pathtracer_envmap
+    config.pathtracer_filename
   );
-
+  filename = config.pathtracer_filename;
 }
 
 Application::~Application() {
@@ -411,36 +414,42 @@ void Application::keyboard_event(int key, int event, unsigned char mods) {
     case RENDER_MODE:
       if (event == EVENT_PRESS) {
         switch (key) {
-        case 'e': case 'E':
+          case 'e': case 'E':
             to_edit_mode();
             break;
-        case 'v': case 'V':
+          case 'v': case 'V':
             pathtracer->stop();
             pathtracer->start_visualizing();
             mode = VISUALIZE_MODE;
             break;
-        case 's': case 'S':
+          case 's': case 'S':
             pathtracer->save_image();
             break;
-        case '[': case ']':
-        case '+': case '=':
-        case '-': case '_':
-        case '.': case '>':
-        case ',': case '<':
-        case 'd': case 'D':
+          case '[': case ']':
+          case '+': case '=':
+          case '-': case '_':
+          case '.': case '>':
+          case ',': case '<':
+          case 'h': case 'H':
             pathtracer->stop();
             pathtracer->key_press(key);
             pathtracer->start_raytracing();
+            break;
+          case 'C': 
+            pathtracer->key_press(key);
             break;
           case 'r': case 'R':
             pathtracer->stop();
             pathtracer->start_raytracing();
             break;
+          case 'd': case 'D':
+            camera.dump_settings(filename + "_cam_settings.txt");
+            break;
         }
       }
       break;
-      case VISUALIZE_MODE:
-        if (event == EVENT_PRESS) {
+    case VISUALIZE_MODE:
+      if (event == EVENT_PRESS) {
         switch(key) {
           case 'e': case 'E':
             to_edit_mode();
@@ -513,6 +522,9 @@ void Application::mouse_pressed(e_mouse_button b) {
         } else {
           scene->invalidate_selection();
         }
+      } else if (mode == RENDER_MODE && pathtracer->render_cell) {
+        pathtracer->cell_tl = Vector2D(mouseX, screenH - mouseY);
+        pathtracer->cell_br = pathtracer->cell_tl;
       }
       leftDown = true;
       break;
@@ -529,6 +541,17 @@ void Application::mouse_released(e_mouse_button b) {
   switch (b) {
     case LEFT:
       leftDown = false;
+      if (mode == RENDER_MODE && pathtracer->render_cell) {
+        Vector2D tl(max(0.,min(pathtracer->cell_tl.x,pathtracer->cell_br.x)),
+                    max(0.,min(pathtracer->cell_tl.y,pathtracer->cell_br.y)));
+        Vector2D br(min(screenW*1.,max(pathtracer->cell_tl.x,pathtracer->cell_br.x)),
+                    min(screenH*1.,max(pathtracer->cell_tl.y,pathtracer->cell_br.y)));
+        pathtracer->cell_tl = tl;
+        pathtracer->cell_br = br;
+        cout << "[PathTracer] Selected cell measures " << (int)(br.x-tl.x) << "x" << (int)(br.y-tl.y) << " pixels" << endl;
+        pathtracer->stop();
+        pathtracer->start_raytracing();
+      }
       break;
     case RIGHT:
       rightDown = false;
@@ -545,6 +568,7 @@ void Application::mouse_released(e_mouse_button b) {
 */
 void Application::mouse1_dragged(float x, float y) {
   if (mode == RENDER_MODE) {
+    pathtracer->cell_br = Vector2D(x, screenH - y);
     return;
   }
   float dx = (x - mouseX);

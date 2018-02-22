@@ -59,6 +59,11 @@ class Viewer {
    */
   void set_renderer( Renderer *renderer );
 
+  void resize(int w, int h) {
+    glfwSetWindowSize(window, w, h);
+    resize_callback(window, w, h);
+  }
+
  private:
 
   /**

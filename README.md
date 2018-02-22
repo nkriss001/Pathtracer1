@@ -1,3 +1,3 @@
-# Assignment 3: PathTracer
+# Assignment 3-1: Raytracer
 
-http://462cmu.github.io/asst3_pathtracer/
+https://cs184.eecs.berkeley.edu/article/14

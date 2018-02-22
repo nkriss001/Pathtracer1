@@ -27,7 +27,6 @@ void usage(const char* binaryName) {
   printf("  -e  <PATH>       Path to environment map\n");
   printf("  -f  <FILENAME>   Image (.png) file to save output to in windowless mode\n");
   printf("  -r  <INT> <INT>  Width and height of output image (if windowless)\n");
-  printf("  -d               Use uniform hemisphere sampling for direct lighting, instead of light source sampling\n");
   printf("  -h               Print this help message\n");
   printf("\n");
 }
@@ -76,42 +75,57 @@ int main( int argc, char** argv ) {
   // get the options
   AppConfig config; int opt;
   bool write_to_file = false;
-  size_t w = 0, h = 0;
-  string filename;
-  while ( (opt = getopt(argc, argv, "s:l:t:m:e:d:h:f:r:")) != -1 ) {  // for each option...
+  size_t w = 0, h = 0, x = -1, y = 0, dx = 0, dy = 0;
+  string filename, cam_settings = "";
+  while ( (opt = getopt(argc, argv, "s:l:t:m:e:h:H:f:r:c:a:p:")) != -1 ) {  // for each option...
     switch ( opt ) {
-    case 'f':
-        write_to_file = true;
-        filename  = string(optarg);
-        break;
-    case 'r':
-        w = atoi(argv[optind-1]);
-        h = atoi(argv[optind]);
-        optind++;
-        break;
-    case 's':
-        config.pathtracer_ns_aa = atoi(optarg);
-        break;
-    case 'l':
-        config.pathtracer_ns_area_light = atoi(optarg);
-        break;
-    case 't':
-        config.pathtracer_num_threads = atoi(optarg);
-        break;
-    case 'm':
-        config.pathtracer_max_ray_depth = atoi(optarg);
-        break;
-    case 'e':
-        config.pathtracer_envmap = load_exr(optarg);
-        break;
-    case 'd':
-        config.pathtracer_direct_hemisphere_sample = true;
-        optind--;
-        break;
-    default:
-        usage(argv[0]);
-        return 1;
-    }
+      case 'f':
+          write_to_file = true;
+          filename  = string(optarg);
+          break;
+      case 'r':
+          w = atoi(argv[optind-1]);
+          h = atoi(argv[optind]);
+          optind++;
+          break;
+      case 'p':
+          x = atoi(argv[optind-1]);
+          y = atoi(argv[optind-0]);
+          dx = atoi(argv[optind+1]);
+          dy = atoi(argv[optind+2]);
+          optind += 3;
+          break;
+      case 's':
+          config.pathtracer_ns_aa = atoi(optarg);
+          break;
+      case 'l':
+          config.pathtracer_ns_area_light = atoi(optarg);
+          break;
+      case 't':
+          config.pathtracer_num_threads = atoi(optarg);
+          break;
+      case 'm':
+          config.pathtracer_max_ray_depth = atoi(optarg);
+          break;
+      case 'e':
+          config.pathtracer_envmap = load_exr(optarg);
+          break;
+      case 'c':
+          cam_settings = string(optarg);
+          break;
+      case 'a':
+          config.pathtracer_samples_per_patch = atoi(argv[optind-1]);
+          config.pathtracer_max_tolerance = atof(argv[optind]);
+          optind++;
+          break;
+      case 'H':
+          config.pathtracer_direct_hemisphere_sample = true;
+          optind--;
+          break;
+      default:
+          usage(argv[0]);
+          return 1;
+      }
   }
 
   // print usage if no argument given
@@ -122,6 +136,9 @@ int main( int argc, char** argv ) {
 
   string sceneFilePath = argv[optind];
   msg("Input scene file: " << sceneFilePath);
+  string sceneFile = sceneFilePath.substr(sceneFilePath.find_last_of('/')+1);
+  sceneFile = sceneFile.substr(0,sceneFile.find(".dae"));
+  config.pathtracer_filename = sceneFile;
 
   // parse scene
   Collada::SceneInfo *sceneInfo = new Collada::SceneInfo();
@@ -142,7 +159,10 @@ int main( int argc, char** argv ) {
     if (w && h)
       app->resize(w, h);
 
-    app->render_to_file(filename); return 0;
+    if (cam_settings != "")
+      app->load_camera(cam_settings);
+
+    app->render_to_file(filename, x, y, dx, dy);
     return 0;
   }
 
@@ -159,6 +179,12 @@ int main( int argc, char** argv ) {
   app->load(sceneInfo);
 
   delete sceneInfo;
+
+  if (w && h)
+    viewer.resize(w, h);
+    
+  if (cam_settings != "")
+    app->load_camera(cam_settings);
 
   // start viewer
   viewer.start();

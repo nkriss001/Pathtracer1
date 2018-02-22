@@ -42,8 +42,6 @@ class EnvironmentLight : public SceneLight {
    */
   Spectrum sample_dir(const Ray& r) const;
 
-  bool point_on_light(const Vector3D& p, Spectrum* rad) const;
-
  private:
   const HDRImageBuffer* envMap;
 }; // class EnvironmentLight

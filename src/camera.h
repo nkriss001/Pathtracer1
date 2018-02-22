@@ -73,6 +73,9 @@ class Camera {
   double near_clip() const { return nClip; }
   double far_clip() const { return fClip; }
 
+  virtual void dump_settings(std::string filename);
+  virtual void load_settings(std::string filename);
+
   /**
    * Returns a world-space ray from the camera that corresponds to a
    * ray exiting the camera that deposits light at the sensor plane
