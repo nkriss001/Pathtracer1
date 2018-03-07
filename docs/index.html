@@ -16,41 +16,337 @@
 <body>
 <br />
 <h1 align="middle">Assignment 3: PathTracer</h1>
-    <h2 align="middle">Your Name</h2>
+    <h2 align="middle">Nicholas Kriss</h2>
+    <h2 align="middle">26141698</h2>
 
     <div class="padded">
-        <p>Use this section to write an overview of the assignment. All of the text in your write-up should be <em>in your own words</em>. If you need to add additional HTML features to this document, you can search the <a href="http://www.w3schools.com/">http://www.w3schools.com/</a> website for instructions. To edit the HTML, you can just copy and paste existing chunks and fill in the text and image file names appropriately.</p>
-        <o>The website writeup is intended to be a self-contained walkthrough of the assignment: we want this to be a piece of work which showcases your understanding of relevant concepts through both mesh images as well as written explanations about what you did to complete each part of the assignment. Try to be as clear and organized as possible when writing about your own output files or extensions to the assignment. We want to understand what you've achieved and how you've done it!</p> 
-        <p>If you are well-versed in web development, feel free to ditch this template and make a better looking page. Just make sure that you include all the components as we've laid them out here. </p>
+        <p>In this project, I implemented ray tracing and path tracing, allowing me to render an image with lighting and diffuse textures. I implemented various strategies to improve the basic algorithms, such as bounding volume hierarchies, lighting illumation rather than just uniform hemisphere sampling, and adaptive sampling to improve on more uniform path tracing. The hardest part of this project was probably finding when rays intersect primitives or bounding boxes, since there are a lot more subtleties than there initially appear. For example, what happens if a ray is parallel to some sides of a bounding box, or what if the ray starts inside a bounding box? There are also lots of little math issues, like remembering to divide by the pdf when using Monte Carlo integration and knowing how to correctly average values.</p>
 
     <h2 align="middle">Part 1: Ray Generation and Intersection</h2>
-        <p>Describe what you did in Part 1. etc...</p>
-        <div align="center">
-            <table style="width=100%">
-                <tr>
-                    <td align="middle">
-                    <img src="images/example_image.png" width="480px" />
-                    <figcaption align="middle">Results Caption: my bunny is the bounciest bunny</figcaption>
-                </tr>
-            </table>
+        <p>The idea of this part is to generate rays through a camera that represents pixels on the screen, and to use that ray to estimate the irradiance of primitives intersected by that ray. The function PathTracer::raytrace_pixel iterates over a single pixel, sending ns_aa rays into the image. Each ray has a randomly chosen start position within the given pixel (unless ns_aa = 1 and I send the ray through the center of the pixel), which I scale down to send to Camera::generate_ray. Here, I find the bottom left and top right corners of the sensor plane, which represents the 2D screen, and linearly interpolate between the x and y values of the corners to find the relative position in screen space of the value I passed in. I find the direction of the ray by converting this relative position to world space and normalizing it, and I use the camera's position as the origin of the ray. Now that I have a test ray, I test to see if it intersects with any primitives in the scene, specifically triangles or spheres. If there is an intersection, I update the ray's maximum distance to be the new intersection, since I'm not interested in any points I can't see from the camera, and I add the estimated irradiance at the intersection to the existing sum of irradiances. Finally, I average the ns_aa irradiances and return.</p>
+
+        <p>I used the Moller Trumbore algorithm to find the intersection of a ray with a triangle. This algorithm solves for t, the distance along the ray it intersects the triange, and b2 and b3, the barycentric coordinates of the intersection corresponding to corners 2 and 3. We get these values by setting O + tD, the equation of the ray, equal to (1 - b2 - b3)P1 + (b1)P2 + (b3)P3, the equation of the triangle in barycentric coordinates, and rearranging to solve for the unknowns. Since I already know this rearrangement, I can immediately solve for the unknowns in matrix form. If the intersection point is beyond the range of the ray, we say that no intersection occurs. Similarly, if any of the barycentric coordinates are negative or greater than 1, the intersection point occurs on the triangle's plane, but not inside the triangle itself, so we don't count it. Otherwise, we update the ray's max to be the new t, and optionally fill in the intersection data with the intersection point, this primitive, the barycentric calculated normal of the triangle, and the bsdf at the intersection point.</p>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBspheres_1.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres</figcaption>
+              </td>
+              <td>
+                <img src="images/cow_2_front.png" align="middle" width="300px"/>
+                <figcaption align="middle">cow.dae from the front</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/cow_2_bottom.png" align="middle" width="300px"/>
+                <figcaption align="middle">cow.dae from the bottom</figcaption>
+              </td>
+              <td>
+                <img src="images/beetle_2.png" align="middle" width="300px"/>
+                <figcaption align="middle">beetle.dae</figcaption>
+              </td>
+            </tr>
+          </table>
         </div>
-        <p>Here is an example of how to include a simple formula:</p>
-        <p align="middle"><pre align="middle">a^2 + b^2 = c^2</pre></p>
-        <p>or, alternatively, you can include an SVG image of a LaTex formula.</p>
-        <p>This time it's your job to copy-paste in the rest of the sections :)</p>
+
+    <h2 align="middle">Part 2: Bounding Volume Hierarchy</h2>
+        <p>The idea of this part is to introduce a bounding volume hierarchy to accelerate ray tracing. In my algorithm, we start with some collection of primitives and a maximum number of primitives that be included in a single box. First, I create a bounding box that can contain all the primitives in my list. If there are fewer than max_leaf_size primitives in my list, I add the primitives to my box, say the box has no left or right child, and return the box. Otherwise, I split the primitives into two sets along a split axis. I calculate the position of the split axis by finding the midpoint of the bounding box, and I choose which axis to split on by calculating the longest edge in the bounding box. Using the centroids of the primitives, I find which side of the split axis the primitive lands. If I find one side doesn't get any primitives, I shrink the bounding box to the split axis, since I know I'm not missing any primitives this way, and I loop until both the left and right child of the box are nonempty. I then recurse on the two children, splitting them into bounding boxes until each leaf in my mesh contains at most max_leaf_size primitives.</p>
+
+        <p>To check for intersection with a bounding box, I first calculate when my ray intersects with each plane making up a face of the bounding box, using the equation for axis-aligned planes. If my ray has value 0 for any direction, so that it lies parallel to a pair of planes, I effectivevly ignore those planes by setting my intersections at positive and negative infinity. This is somewhat inefficient, but easy to implement. Now, I find which of each pair of parallel planes I intersect first, and which one I intersect second. Of the first intersections, I set the last as min_t, and of the second intersections, I set the first as max_t. If max_t >= min_t and max_t >= 0, then I intersect the bounding box. Specifically, if max_t < min_t, then I intersect both planes in a parallel pair before intersecting either plane in some other pair, and so I do not intersect the box. However, if max_t >= min_t and max_t < 0, then the intersection happens behind my array and I don't care about it. If an intersection does occur, and my bounding box is a leaf node, then I iterate through all the primitives and check their intersections normally, looking for the earliest intersection. If the bounding box is not a leaf node, I recursively check if my ray intersects either of its children.</p>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/dragon_2.png" align="middle" width="300px"/>
+                <figcaption align="middle">dragon.dae</figcaption>
+              </td>
+              <td>
+                <img src="images/bunny_1.png" align="middle" width="300px"/>
+                <figcaption align="middle">bunny.dae</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/maxplanck_2.png" align="middle" width="300px"/>
+                <figcaption align="middle">maxplanck.dae</figcaption>
+              </td>
+              <td>
+                <img src="images/CBlucy_2.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBlucy.dae</figcaption>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <p>As expected, using a bounding volume hierarchy is significantly faster than just checking every primitive. With default settings, for example, beetle.dae takes approximately 6.4 minutes and 1000 intersection tests per ray, and cow.dae takes approximately 9 minutes and 1375 intersection tests per ray. With a bounding volume hierarchy, beetle.dae now takes 2.9 seconds and 2 intersection tests per ray, and cow.dae takes 3.8 seconds and 3.4 intersection tests per ray. CBlucy.dae, which has almost 20 times as many primitives as cow.dae, takes 4.6 seconds to render, almost half the time took cow.dae without a bounding box. I also ran tests on CBspheres_lambertian with different numbers of samples per pixel. Without bounding boxes, it took 1.4907 seconds with -s 1, 2.9287 with -s 2, 5.5640 with -s 4, and 10.8536 with -s 8, so it changes linearly with number of samples per pixel, which makes sense. With a hierarchy, however, the times actually went up slightly, to 1.5849 seconds with -s 1, 3.2237 with -s 2, 6.0730 with -s 4, and 11.5142 with -s 8. This is probably because the scene contains so few primitives to begin with that checking each bounding box actually becomes marginally slower than just checking the primitive intersections.</p>
 
 
+    <h2 align="middle">Part 3: Direct Illumation</h2>
+        <p>The idea of this part is to calculate the light that falls directly on a part of the image. For direct hemisphere sampling, I take a number of randomly chosen directions from my intersection point, distributed uniformly. I convert each sample to world space to use as the direction of a new ray, which I cast slightly offset from the intersection point, so as not to immediately re-intersect the mesh. I cast this ray into the scene from my intersection point, and see if I get a new intersection. If I do, I add the irradiance from that point, found by multiplying the radiance with the cosine of the angle of intersection and the bsdf of the original intersection point. I also divide by the pdf, the probability that I chose this direction, which is uniformly 2PI, so that the expected value of the sum of the irradiances is the actual irradiance. After casting the desired number of randomly directed rays, return their average.</p>
 
-    <h2 align="middle">A Few Notes On Webpages</h2>
-        <p>Here are a few problems students have encountered in the past. You will probably encounter these problems at some point, so don't wait until right before the deadline to check that everything is working. Test your website on the instructional machines early!</p>
-        <ul>
-        <li>Your main report page should be called index.html.</li>
-        <li>Be sure to include and turn in all of the other files (such as images) that are linked in your report!</li>
-        <li>Use only <em>relative</em> paths to files, such as <pre>"./images/image.jpg"</pre>
-        Do <em>NOT</em> use absolute paths, such as <pre>"/Users/student/Desktop/image.jpg"</pre></li>
-        <li>Pay close attention to your filename extensions. Remember that on UNIX systems (such as the instructional machines), capitalization matters. <pre>.png != .jpeg != .jpg != .JPG</pre>
-        <li>Be sure to adjust the permissions on your files so that they are world readable. For more information on this please see this tutorial: <a href="http://www.grymoire.com/Unix/Permissions.html">http://www.grymoire.com/Unix/Permissions.html</a></li>
-        <li>And again, test your website on the instructional machines early!</li>
+        <p>For lighting importance sampling, I want to choose directions that I know point towards a light source. For each light, I either take 1 ray toward the light if it's a point or several random rays directed at points on the area of the light. Rays are now found in world space, and the pdf for each direction varies. For each ray, I check if it intersects some primitive before the light, and if so, the light does not reach that point and the irradiance remains zero. If, however, there is no intersection before the light, I add the irradiance from the light, in the same way as in hemisphere sampling. I average the samples at each light, and then sum the averages together to find the light falling on the original intersection point in the mesh.</p>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBbunny_3_1_16_8.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae hemisphere sampling, with -s 16 and -l 8</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_3_1_64_32.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae hemisphere sampling, with -s 64 and -l 32</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_i.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae hemisphere sampling, with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBspheres_lambertian_3_1_16_8.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae hemisphere sampling, with -s 16 and -l 8</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_3_1_64_32.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae hemisphere sampling, with -s 64 and -l 32</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_i.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae hemisphere sampling, with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBbunny_3_2_16_8.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae lighting sampling, with -s 16 and -l 8</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_3_2_64_32.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae lighting sampling, with -s 64 and -l 32</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_h.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae lighting sampling, with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBspheres_lambertian_3_2_16_8.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae lighting sampling, with -s 16 and -l 8</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_3_2_64_32.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae lighting sampling, with -s 64 and -l 32</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_h.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae lighting sampling, with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/dragon_3_2_16_8.png" align="middle" width="300px"/>
+                <figcaption align="middle">dragon.dae lighting sampling, with -s 16 and -l 8</figcaption>
+              </td>
+              <td>
+                <img src="images/dragon_3_2_64_32.png" align="middle" width="300px"/>
+                <figcaption align="middle">dragon.dae lighting sampling, with -s 64 and -l 32</figcaption>
+              </td>
+              <td>
+                <img src="images/dragon_h.png" align="middle" width="300px"/>
+                <figcaption align="middle">dragon.dae lighting sampling, with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBbunny_3_1_1.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1 and -l 1</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_3_1_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBbunny_3_1_16.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1 and -l 16</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_3_1_64.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1 and -l 64</figcaption>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <p>Clearly, lighting sampling is a more effective method of finding the direct lighting on a scene, with the effects being obvious even at the lowest -s and -l values. We get less noise and thus fewer weird black spots, since all rays will either reach the light and receive some irradiance or not reach the light and be in shadow, whereas with hemisphere sampling, many areas that can reach the light might not and thus might randomly not receive any radiance. Lighting sampling is also less affected by the number of light samples per pixel, since it at least directs all rays towards a light, whereas hemisphere sampling chooses directions totally randomly. Not even a massive amount of samples per pixel can compensate for a low number of light samples in hemisphere sampling, whereas one sample for pixel is sufficient if we have many light samples. In lighting sampling, we only really see artifacts around the edges of shadows, which makes sense, since there will be more variation in whether rays reach the light or not at these points. Also, we can't even render dragon.dae with just hemisphere sampling, since it uses point light sources that random directions will never accidently go towards, and even if they did, the point sources don't have geometry and thus can't be intersected. Basically, lighting sampling is superior in every way.</p>
+
+
+    <h2 align="middle">Part 4: Global Illumation</h2>
+        <p>The idea of this part is to improve our lighting calculations by calculating indirect lighting that bounces off other parts of the image before hitting our original intersection point. First, I calculate the zero_bounc_radiance, the radiance generated by the point itself, which is zero for non-light sources. Then, I calculate at_least_one_bounce_radiance, the radiance generated from other parts of the scene. First, I find the direct light on the intersection point using one_bounce_radiance, which returns my result from part 3. Then, I decide whther or not to recursively call at_least_one_bounce_radiance. I always recurse if max_ray_depth is greater than one and my current depth is max_ray_depth, which means I have never recursed on this ray before since I initalize all rays to max_ray_depth. Also, if my depth is less than or equal to one, I stop recursing immediately. Otherwise, with probability 0.7 I continue tracing the path and with probability 0.3 I terminate and return just one_bounce_radiance. If I choose to recurse, I sample a random direction with probability pdf and use my current intersection point as the origin. If my new ray intersects the scene at some point, I recursively call at_least_one_bounce_radiance to find its radiance, and convert it to irradiance by multiplying by the bsdf and the cosine of the angle of intersection, and dividing by the probabilities pdf and 0.7. Eventually, every recursion will terminate and I will get the indirect lighting for every part of the scene.</p>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBbunny_4_1_16_8.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 16 and -l 8</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_4_1_64_16.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 64 and -l 16</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_4_1_1024_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBspheres_lambertian_4_1_16_8.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae with -s 16 and -l 8</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_4_1_64_16.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae with -s 64 and -l 16</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_4_1_1024_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/dragon_4_1_1024_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">dragon.dae with -s 1024 and -l 4</figcaption>
+              </td>
+          </table>
+        </div>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBspheres_lambertian_4_1024_4_d.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae with -s 1024 and -l 4, with only direct lighting</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_4_1024_4_i.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae with -s 1024 and -l 4, with only indirect lighting</figcaption>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBbunny_4_1024_4_0.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1024, -l 4 and -m 0</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_4_1024_4_1.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1024, -l 4 and -m 1</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_4_1024_4_2.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1024, -l 4 and -m 2</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBbunny_4_1_1024_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1024, -l 4 and -m 4</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_4_1024_4_100.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1024, -l 4 and -m 100</figcaption>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBspheres_lambertian_4_1_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 1 and -l 4</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_4_2_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 2 and -l 4</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_4_4_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 4 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBspheres_lambertian_4_8_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 8 and -l 4</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_4_16_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 16 and -l 4</figcaption>
+              </td>
+              <td>
+                <img src="images/CBspheres_lambertian_4_64_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae with -s 64 and -l 4</figcaption>
+              </td>
+            </tr>
+            <br>
+            <tr>
+              <td>
+                <img src="images/CBspheres_lambertian_4_1_1024_4.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBspheres_lambertian.dae with -s 1024 and -l 4</figcaption>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+    <h2 align="middle">Part 5: Adaptive Sampling</h2>
+        <p>The idea of this part is to completely eliminate noise without having to uniformly raise the number of samples per pixel. Now, after every batch of pixel samples, I calculate the mean and variance of the samples I've already calculated. If I find 1.96 times the square root of the variance divided by the number of samples so far is less than or equal to our maxTolerance times the average, I can say with confidence that the illuminance of this pixel has converged and I don't need to make any more samples. Otherwise, I trace the ray as normal, and afterwards keep track of variables s1 and s2 which I can use to calculate the mean and variance in the future.</p>
+
+        <div align="middle">
+          <table style="width=100%">
+            <tr>
+              <td>
+                <img src="images/CBbunny_final.png" align="middle" width="300px"/>
+                <figcaption align="middle">CBbunny.dae rendered with max -s 2048, -l 1 and -m 5</figcaption>
+              </td>
+              <td>
+                <img src="images/CBbunny_final_rate.png" align="middle" width="300px"/>
+                <figcaption align="middle">The convergence rate of the CBbunny.dae render</figcaption>
+              </td>
+            </tr>
+          </table>
+        </div>
+
 </div>
 </body>
 </html>
